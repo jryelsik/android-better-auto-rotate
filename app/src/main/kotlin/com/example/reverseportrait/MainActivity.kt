@@ -15,12 +15,18 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -43,6 +50,7 @@ import com.example.reverseportrait.ui.theme.ReversePortraitTheme
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    ReversePortraitService.loadRotationMode(this)
     enableEdgeToEdge(
       statusBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
       navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK)
@@ -60,6 +68,7 @@ fun ReversePortraitSetupScreen() {
   val context = LocalContext.current
   val lifecycleOwner = LocalLifecycleOwner.current
   val isRunning by ReversePortraitService.isRunning.collectAsStateWithLifecycle()
+  val rotationMode by ReversePortraitService.rotationMode.collectAsStateWithLifecycle()
   var canDrawOverlays by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
 
   DisposableEffect(lifecycleOwner) {
@@ -95,13 +104,74 @@ fun ReversePortraitSetupScreen() {
         text = if (!canDrawOverlays) {
           "Step 1: Grant 'Display over other apps' so the Quick Settings Tile can auto-rotate your screen in all 4 directions (including Reverse Portrait)."
         } else if (isRunning) {
-          "ACTIVE — 4-way gyro auto-rotate (Portrait, Landscape, Reverse Portrait, Reverse Landscape) is ON."
+          when (rotationMode) {
+            RotationMode.PORTRAIT_AND_REVERSE ->
+              "ACTIVE — Only 0° (Portrait) and 180° (Reverse Portrait) rotation is ON."
+            RotationMode.FULL_FOUR_WAY ->
+              "ACTIVE — Full 4-way rotation (0°, 90°, 180°, 270°) is ON."
+          }
         } else {
           "OFF — Screen is in standard Portrait. Toggle below or from your Quick Settings Tile."
         },
         style = MaterialTheme.typography.bodyLarge,
         color = Color.White
       )
+
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .selectableGroup()
+      ) {
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+              selected = (rotationMode == RotationMode.PORTRAIT_AND_REVERSE),
+              onClick = {
+                ReversePortraitService.setRotationMode(context, RotationMode.PORTRAIT_AND_REVERSE)
+              },
+              role = Role.RadioButton
+            )
+            .padding(vertical = 8.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          RadioButton(
+            selected = (rotationMode == RotationMode.PORTRAIT_AND_REVERSE),
+            onClick = null
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = "Only 0° (portrait) and 180° (reverse portrait)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White
+          )
+        }
+
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+              selected = (rotationMode == RotationMode.FULL_FOUR_WAY),
+              onClick = {
+                ReversePortraitService.setRotationMode(context, RotationMode.FULL_FOUR_WAY)
+              },
+              role = Role.RadioButton
+            )
+            .padding(vertical = 8.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          RadioButton(
+            selected = (rotationMode == RotationMode.FULL_FOUR_WAY),
+            onClick = null
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = "Full 4-way rotation (0°, 90°, 180°, 270°)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White
+          )
+        }
+      }
 
       if (!canDrawOverlays) {
         Button(

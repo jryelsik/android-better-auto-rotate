@@ -10,11 +10,13 @@ import android.service.quicksettings.TileService
 class ReversePortraitTileService : TileService() {
   override fun onStartListening() {
     super.onStartListening()
-    updateTileState(ReversePortraitService.isRunning.value)
+    val mode = ReversePortraitService.loadRotationMode(this)
+    updateTileState(ReversePortraitService.isRunning.value, mode)
   }
 
   override fun onClick() {
     super.onClick()
+    val mode = ReversePortraitService.rotationMode.value
     when (ReversePortraitService.toggle(this)) {
       ToggleDecision.REQUEST_OVERLAY_PERMISSION -> {
         val intent = Intent(
@@ -29,15 +31,22 @@ class ReversePortraitTileService : TileService() {
         )
         startActivityAndCollapse(pendingIntent)
       }
-      ToggleDecision.START_SERVICE -> updateTileState(true)
-      ToggleDecision.STOP_SERVICE -> updateTileState(false)
+      ToggleDecision.START_SERVICE -> updateTileState(true, mode)
+      ToggleDecision.STOP_SERVICE -> updateTileState(false, mode)
     }
   }
 
-  private fun updateTileState(active: Boolean) {
+  private fun updateTileState(
+    active: Boolean,
+    mode: RotationMode = ReversePortraitService.rotationMode.value
+  ) {
     val tile = qsTile ?: return
     tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-    tile.subtitle = if (active) "4-way" else "Portrait"
+    tile.subtitle = when {
+      !active -> "Portrait"
+      mode == RotationMode.PORTRAIT_AND_REVERSE -> "0° / 180°"
+      else -> "4-way"
+    }
     tile.updateTile()
   }
 }

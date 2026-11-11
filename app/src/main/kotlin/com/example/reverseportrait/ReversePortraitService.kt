@@ -14,14 +14,22 @@ import android.graphics.PixelFormat
 import android.os.IBinder
 import android.provider.Settings
 import android.service.quicksettings.TileService
+import android.view.OrientationEventListener
 import android.view.View
 import android.view.WindowManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class RotationMode {
+  PORTRAIT_AND_REVERSE,
+  FULL_FOUR_WAY
+}
+
 class ReversePortraitService : Service() {
   private var overlayView: View? = null
+  private var overlayParams: WindowManager.LayoutParams? = null
+  private var orientationListener: OrientationEventListener? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -31,12 +39,13 @@ class ReversePortraitService : Service() {
       return START_NOT_STICKY
     }
 
+    val mode = loadRotationMode(this)
     startForeground(
       NOTIFICATION_ID,
-      buildNotification(),
+      buildNotification(mode),
       ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
     )
-    attachOverlay()
+    attachOrUpdateOverlay(mode)
     return START_STICKY
   }
 
@@ -45,11 +54,11 @@ class ReversePortraitService : Service() {
     super.onDestroy()
   }
 
-  private fun attachOverlay() {
-    if (overlayView != null) return
+  private fun attachOrUpdateOverlay(mode: RotationMode) {
     val wm = getSystemService(WindowManager::class.java)
-    val view = View(this)
-    val params = WindowManager.LayoutParams(
+    val isNew = (overlayView == null)
+    val view = overlayView ?: View(this).also { overlayView = it }
+    val params = overlayParams ?: WindowManager.LayoutParams(
       0,
       0,
       WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -57,26 +66,55 @@ class ReversePortraitService : Service() {
         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
       PixelFormat.TRANSLUCENT
-    ).apply {
-      // Forces 4-way sensor rotation (Portrait, Landscape, Reverse Portrait, Reverse Landscape) across all apps.
-      screenOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+    ).also { overlayParams = it }
+
+    if (mode == RotationMode.FULL_FOUR_WAY) {
+      orientationListener?.disable()
+      params.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+    } else {
+      if (params.screenOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT &&
+        params.screenOrientation != ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+      ) {
+        params.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+      }
+      if (orientationListener == null) {
+        orientationListener = object : OrientationEventListener(this) {
+          override fun onOrientationChanged(degrees: Int) {
+            val currentParams = overlayParams ?: return
+            val currentView = overlayView ?: return
+            val next = resolvePortraitOrientation(degrees, currentParams.screenOrientation)
+            if (next != currentParams.screenOrientation) {
+              currentParams.screenOrientation = next
+              runCatching { wm.updateViewLayout(currentView, currentParams) }
+            }
+          }
+        }
+      }
+      orientationListener?.enable()
     }
-    wm.addView(view, params)
-    overlayView = view
-    _isRunning.value = true
-    syncTile(this)
+
+    if (isNew) {
+      wm.addView(view, params)
+      _isRunning.value = true
+      syncTile(this)
+    } else {
+      runCatching { wm.updateViewLayout(view, params) }
+    }
   }
 
   private fun detachOverlay() {
+    orientationListener?.disable()
+    orientationListener = null
     overlayView?.let { view ->
       runCatching { getSystemService(WindowManager::class.java).removeView(view) }
     }
     overlayView = null
+    overlayParams = null
     _isRunning.value = false
     syncTile(this)
   }
 
-  private fun buildNotification(): Notification {
+  private fun buildNotification(mode: RotationMode): Notification {
     val nm = getSystemService(NotificationManager::class.java)
     if (nm.getNotificationChannel(CHANNEL_ID) == null) {
       nm.createNotificationChannel(
@@ -89,10 +127,16 @@ class ReversePortraitService : Service() {
       Intent(this, ReversePortraitService::class.java).setAction(ACTION_STOP),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
+    val contentText = when (mode) {
+      RotationMode.PORTRAIT_AND_REVERSE ->
+        "0° and 180° (Portrait & Reverse Portrait) auto-rotate active."
+      RotationMode.FULL_FOUR_WAY ->
+        "4-way auto-rotate (0°, 90°, 180°, 270°) active."
+    }
     return Notification.Builder(this, CHANNEL_ID)
       .setSmallIcon(R.drawable.ic_reverse_portrait)
       .setContentTitle("Better Auto-rotate is ON")
-      .setContentText("4-way auto-rotate (including Reverse Portrait) active.")
+      .setContentText(contentText)
       .setOngoing(true)
       .addAction(Notification.Action.Builder(null, "Turn Off", stopIntent).build())
       .build()
@@ -103,8 +147,46 @@ class ReversePortraitService : Service() {
     private const val CHANNEL_ID = "reverse_portrait"
     private const val NOTIFICATION_ID = 1001
 
+    private const val PREFS_NAME = "reverse_portrait_prefs"
+    private const val KEY_ROTATION_MODE = "rotation_mode"
+
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+
+    private val _rotationMode = MutableStateFlow(RotationMode.PORTRAIT_AND_REVERSE)
+    val rotationMode: StateFlow<RotationMode> = _rotationMode.asStateFlow()
+
+    fun loadRotationMode(context: Context): RotationMode {
+      val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      val modeName = prefs.getString(KEY_ROTATION_MODE, RotationMode.PORTRAIT_AND_REVERSE.name)
+      val mode = runCatching { RotationMode.valueOf(modeName ?: "") }
+        .getOrDefault(RotationMode.PORTRAIT_AND_REVERSE)
+      _rotationMode.value = mode
+      return mode
+    }
+
+    fun setRotationMode(context: Context, mode: RotationMode) {
+      context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_ROTATION_MODE, mode.name)
+        .apply()
+      _rotationMode.value = mode
+      syncTile(context)
+      if (_isRunning.value && Settings.canDrawOverlays(context)) {
+        context.startForegroundService(Intent(context, ReversePortraitService::class.java))
+      }
+    }
+
+    /** Pure helper function for unit testing and sensor listener. */
+    fun resolvePortraitOrientation(
+      degrees: Int,
+      currentOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    ): Int = when {
+      degrees == OrientationEventListener.ORIENTATION_UNKNOWN -> currentOrientation
+      degrees in 135..225 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+      degrees in 0..45 || degrees in 315..359 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+      else -> currentOrientation
+    }
 
     /** Pure decision helper for unit testing and tile/button clicks. */
     fun nextAction(hasOverlayPermission: Boolean, currentlyRunning: Boolean): ToggleDecision =
