@@ -165,6 +165,24 @@ class ReversePortraitService : Service() {
       return mode
     }
 
+    fun selectModeAndStart(context: Context, mode: RotationMode) {
+      context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_ROTATION_MODE, mode.name)
+        .apply()
+      _rotationMode.value = mode
+      if (Settings.canDrawOverlays(context)) {
+        context.startForegroundService(Intent(context, ReversePortraitService::class.java))
+        syncTile(context)
+      }
+    }
+
+    fun turnOff(context: Context) {
+      context.stopService(Intent(context, ReversePortraitService::class.java))
+      _isRunning.value = false
+      syncTile(context)
+    }
+
     fun setRotationMode(context: Context, mode: RotationMode) {
       context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
@@ -202,7 +220,7 @@ class ReversePortraitService : Service() {
         ToggleDecision.START_SERVICE ->
           context.startForegroundService(Intent(context, ReversePortraitService::class.java))
         ToggleDecision.STOP_SERVICE ->
-          context.stopService(Intent(context, ReversePortraitService::class.java))
+          turnOff(context)
         ToggleDecision.REQUEST_OVERLAY_PERMISSION -> Unit
       }
       return decision

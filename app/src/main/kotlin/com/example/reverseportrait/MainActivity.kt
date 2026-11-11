@@ -40,6 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -100,19 +104,32 @@ fun ReversePortraitSetupScreen() {
         style = MaterialTheme.typography.headlineMedium,
         color = Color.White
       )
-      Text(
-        text = if (!canDrawOverlays) {
-          "Step 1: Grant 'Display over other apps' so the Quick Settings Tile can auto-rotate your screen in all 4 directions (including Reverse Portrait)."
-        } else if (isRunning) {
-          when (rotationMode) {
-            RotationMode.PORTRAIT_AND_REVERSE ->
-              "ACTIVE — Only 0° (Portrait) and 180° (Reverse Portrait) rotation is ON."
-            RotationMode.FULL_FOUR_WAY ->
-              "ACTIVE — Full 4-way rotation (0°, 90°, 180°, 270°) is ON."
+
+      val statusText = remember(canDrawOverlays, isRunning, rotationMode) {
+        buildAnnotatedString {
+          if (!canDrawOverlays) {
+            append("Step 1: Grant 'Display over other apps' so the Quick Settings Tile can auto-rotate your screen in all 4 directions (including Reverse Portrait).")
+          } else if (isRunning) {
+            withStyle(SpanStyle(color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)) {
+              append("ACTIVE")
+            }
+            when (rotationMode) {
+              RotationMode.PORTRAIT_AND_REVERSE ->
+                append(" — 0° (Portrait) and 180° (Reverse Portrait) rotation is ON.")
+              RotationMode.FULL_FOUR_WAY ->
+                append(" — Full 4-way rotation (0°, 90°, 180°, 270°) is ON.")
+            }
+          } else {
+            withStyle(SpanStyle(color = Color(0xFFFF5252), fontWeight = FontWeight.Bold)) {
+              append("OFF")
+            }
+            append(" — Screen is in standard Portrait. Toggle below or from your Quick Settings Tile.")
           }
-        } else {
-          "OFF — Screen is in standard Portrait. Toggle below or from your Quick Settings Tile."
-        },
+        }
+      }
+
+      Text(
+        text = statusText,
         style = MaterialTheme.typography.bodyLarge,
         color = Color.White
       )
@@ -126,9 +143,9 @@ fun ReversePortraitSetupScreen() {
           modifier = Modifier
             .fillMaxWidth()
             .selectable(
-              selected = (rotationMode == RotationMode.PORTRAIT_AND_REVERSE),
+              selected = !isRunning,
               onClick = {
-                ReversePortraitService.setRotationMode(context, RotationMode.PORTRAIT_AND_REVERSE)
+                ReversePortraitService.turnOff(context)
               },
               role = Role.RadioButton
             )
@@ -136,12 +153,12 @@ fun ReversePortraitSetupScreen() {
           verticalAlignment = Alignment.CenterVertically
         ) {
           RadioButton(
-            selected = (rotationMode == RotationMode.PORTRAIT_AND_REVERSE),
+            selected = !isRunning,
             onClick = null
           )
           Spacer(modifier = Modifier.width(8.dp))
           Text(
-            text = "Only 0° (portrait) and 180° (reverse portrait)",
+            text = "Off",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White
           )
@@ -151,9 +168,21 @@ fun ReversePortraitSetupScreen() {
           modifier = Modifier
             .fillMaxWidth()
             .selectable(
-              selected = (rotationMode == RotationMode.FULL_FOUR_WAY),
+              selected = isRunning && rotationMode == RotationMode.PORTRAIT_AND_REVERSE,
               onClick = {
-                ReversePortraitService.setRotationMode(context, RotationMode.FULL_FOUR_WAY)
+                if (!canDrawOverlays) {
+                  context.startActivity(
+                    Intent(
+                      Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                      Uri.parse("package:${context.packageName}")
+                    )
+                  )
+                } else {
+                  ReversePortraitService.selectModeAndStart(
+                    context,
+                    RotationMode.PORTRAIT_AND_REVERSE
+                  )
+                }
               },
               role = Role.RadioButton
             )
@@ -161,7 +190,44 @@ fun ReversePortraitSetupScreen() {
           verticalAlignment = Alignment.CenterVertically
         ) {
           RadioButton(
-            selected = (rotationMode == RotationMode.FULL_FOUR_WAY),
+            selected = isRunning && rotationMode == RotationMode.PORTRAIT_AND_REVERSE,
+            onClick = null
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = "0° (portrait) and 180° (reverse portrait)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White
+          )
+        }
+
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+              selected = isRunning && rotationMode == RotationMode.FULL_FOUR_WAY,
+              onClick = {
+                if (!canDrawOverlays) {
+                  context.startActivity(
+                    Intent(
+                      Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                      Uri.parse("package:${context.packageName}")
+                    )
+                  )
+                } else {
+                  ReversePortraitService.selectModeAndStart(
+                    context,
+                    RotationMode.FULL_FOUR_WAY
+                  )
+                }
+              },
+              role = Role.RadioButton
+            )
+            .padding(vertical = 8.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          RadioButton(
+            selected = isRunning && rotationMode == RotationMode.FULL_FOUR_WAY,
             onClick = null
           )
           Spacer(modifier = Modifier.width(8.dp))
