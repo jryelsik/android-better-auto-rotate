@@ -1,4 +1,4 @@
-# Better Auto-rotate
+# Android Better Auto-rotate
 
 An Android utility that enables 4-way sensor auto-rotation system-wide, including 180° reverse portrait, via a Quick Settings tile.
 
@@ -8,6 +8,10 @@ By default, Android's built-in auto-rotate only rotates between 3 orientations (
 
 - Android 14 (API 34) or higher (compiled against Android 17 / API 37.0)
 - "Display over other apps" permission
+
+## Known Limitations
+
+- **System Settings App & Lock Screen:** On standard phone screens, the Android Settings app and keyguard lock screen are hardcoded to portrait (0°). Additionally, Android enforces tapjacking security protections (`SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS`) across sensitive system and settings pages, temporarily suppressing third-party overlays and reverting the display to 0° portrait while those screens are in focus.
 
 ## Usage
 
